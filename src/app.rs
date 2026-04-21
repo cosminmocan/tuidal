@@ -1,3 +1,5 @@
+use crate::media_controls::TuidalMediaControls;
+use crate::player::PlayerState;
 use crate::i18n::Lang;
 use crate::player::{Player, TrackInfo};
 use crate::tidal::{Quality, TidalClient, Track, Artist, Album, StreamInfo, CoverInfo, Playlist, Mix, FavAlbum};
@@ -7,6 +9,46 @@ use image::DynamicImage;
 use ratatui_image::protocol::StatefulProtocol;
 use ratatui_image::picker::Picker;
 use serde::Serialize;
+use std::fs;
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, DeserializeAttr, Serialize)]
+pub struct AppConfig {
+    pub lang: Lang,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self { lang: Lang::Es }
+    }
+}
+
+impl AppConfig {
+    fn path() -> Option<PathBuf> {
+        dirs::config_dir().map(|d| d.join("tidal-tui").join("config.json"))
+    }
+    pub fn load() -> Self {
+        if let Some(p) = Self::path() {
+            if let Ok(content) = fs::read_to_string(&p) {
+                if let Ok(cfg) = serde_json::from_str(&content) {
+                    return cfg;
+                }
+            }
+        }
+        Self::default()
+    }
+    pub fn save(&self) -> Result<(), std::io::Error> {
+        if let Some(p) = Self::path() {
+            if let Some(parent) = p.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            if let Ok(content) = serde_json::to_string_pretty(self) {
+                fs::write(p, content)?;
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputMode {
@@ -54,6 +96,7 @@ pub enum ApiCommand {
     VolumeSet(u8),
     SeekForward,
     SeekBackward,
+    SeekTo(u64),
     PlayTrack(ApiTrack),
     ToggleShuffle,
     CycleRepeat,
@@ -138,10 +181,12 @@ pub struct App {
     pub lang:    Lang,
     pub shuffle: bool,
     pub repeat:  RepeatMode,
+    pub media_controls: Option<TuidalMediaControls>,
 }
 
 impl App {
     pub fn new() -> Self {
+        let config = AppConfig::load();
         Self {
             tidal:            TidalClient::new(),
             player:           Player::new(),
@@ -173,19 +218,41 @@ impl App {
             fav_albums:         Vec::new(),
             fav_album_selected: 0,
             collection_view:    CollectionView::Tracks,
-            lang:               Lang::Es,
+            lang:               config.lang,
             shuffle:            false,
             repeat:             RepeatMode::All,
+            media_controls:     None,
         }
     }
 
     pub fn cycle_lang(&mut self) {
         self.lang = self.lang.cycle();
         self.status_msg = self.lang.lang_changed();
+        let config = AppConfig { lang: self.lang };
+        let _ = config.save();
     }
 
     fn tx(&self) -> UnboundedSender<AppEvent> {
         self.event_tx.clone().expect("event_tx no inicializado")
+    }
+
+    pub fn update_media_controls(&mut self) {
+        if let Some(ref mut mc) = self.media_controls {
+            if let Some(info) = &self.player.current {
+                let cover_url = self.cover_info.as_ref().map(|c| c.url.as_str());
+                mc.update_metadata(
+                    &info.title,
+                    &info.artist,
+                    &info.album,
+                    Some(info.duration as f64),
+                    cover_url,
+                );
+            }
+            mc.update_playback_status(
+                self.player.state == PlayerState::Playing,
+                self.player.elapsed.as_secs_f64()
+            );
+        }
     }
 
     pub fn handle_event(&mut self, event: AppEvent) {
@@ -313,6 +380,7 @@ impl App {
                 ApiCommand::VolumeSet(v) => { self.player.set_volume(v); }
                 ApiCommand::SeekForward  => { self.player.seek_forward(); }
                 ApiCommand::SeekBackward => { self.player.seek_backward(); }
+                ApiCommand::SeekTo(secs) => { self.player.seek_to(secs); }
                 ApiCommand::ToggleShuffle => {
                     self.shuffle = !self.shuffle;
                     self.status_msg = if self.shuffle { "Shuffle: on".into() } else { "Shuffle: off".into() };
@@ -348,6 +416,7 @@ impl App {
                 }
             },
         }
+        self.update_media_controls();
     }
 
     pub fn do_search_bg(&mut self) {

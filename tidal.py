@@ -21,7 +21,9 @@ SESSION_FILE = Path.home() / ".config" / "tidal-tui" / "tidalapi_session.json"
 POLL_FILE    = Path.home() / ".config" / "tidal-tui" / "oauth_pending.json"
 
 def out(data):
-    print(json.dumps(data, ensure_ascii=False))
+    # Use ensure_ascii=True (default) so that non-ASCII characters are escaped as \uXXXX.
+    # This is much safer for IPC as it avoids encoding mismatches.
+    print(json.dumps(data))
     sys.stdout.flush()
 
 def err(msg: str):

@@ -4,6 +4,7 @@ mod ui;
 mod player;
 mod app;
 mod api;
+mod media_controls;
 
 use anyhow::Result;
 use app::{App, AppEvent, ApiStatus, InputMode, Tab};
@@ -41,6 +42,8 @@ async fn main() -> Result<()> {
     let (event_tx, event_rx) = mpsc::unbounded_channel::<AppEvent>();
     app.event_tx = Some(event_tx.clone());
 
+    app.media_controls = media_controls::TuidalMediaControls::new(event_tx.clone()).ok();
+
     let api_status = Arc::new(RwLock::new(ApiStatus::default()));
     tokio::spawn(api::start_server(
         event_tx,
@@ -74,6 +77,7 @@ async fn run_app<B: ratatui::backend::Backend>(
 ) -> Result<()> {
     let mut ui_tick   = interval(Duration::from_millis(50));
     let mut auth_tick = interval(Duration::from_secs(5));
+    let mut mc_tick_count = 0;
     auth_tick.reset();
 
     loop {
@@ -87,6 +91,22 @@ async fn run_app<B: ratatui::backend::Backend>(
 
             _ = ui_tick.tick() => {
                 app.player.tick();
+                
+                // On macOS, we need to manually poll the system run loop to receive media key events.
+                #[cfg(target_os = "macos")]
+                {
+                    use core_foundation::runloop::{CFRunLoopRunInMode, kCFRunLoopDefaultMode};
+                    unsafe {
+                        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.0, 1);
+                    }
+                }
+
+                mc_tick_count += 1;
+                if mc_tick_count >= 5 {
+                    app.update_media_controls();
+                    mc_tick_count = 0;
+                }
+
                 if let Ok(mut s) = api_status.write() {
                     *s = app.api_status_snapshot();
                 }
@@ -129,6 +149,7 @@ fn handle_normal(key: KeyCode, app: &mut App) {
     match key {
         KeyCode::Char('q') => {
             app.player.stop();
+            app.update_media_controls();
             std::process::exit(0);
         }
         KeyCode::Char('/') | KeyCode::Char('s') => {
@@ -198,6 +219,7 @@ fn handle_normal(key: KeyCode, app: &mut App) {
         KeyCode::Char('`') => app.cycle_lang(),
         _ => {}
     }
+    app.update_media_controls();
 }
 
 fn handle_search(key: KeyCode, app: &mut App) {
