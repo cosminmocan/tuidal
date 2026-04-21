@@ -196,6 +196,7 @@ impl TidalClient {
     }
 
     fn run(&self, args: &[&str]) -> Result<String> {
+        // println!("[tidal.rs] script: {} args: {:?}", self.script_path, args);
         let output = Command::new(&self.python_path)
             .arg(&self.script_path)
             .args(args)
@@ -343,6 +344,13 @@ impl TidalClient {
 
     pub async fn get_mix_tracks(&self, mix_id: &str) -> Result<Vec<Track>> {
         let stdout = self.run(&["mix_tracks", mix_id])?;
+        let tracks: Vec<Track> = serde_json::from_str(&stdout)
+            .map_err(|e| anyhow!("JSON error: {e}\noutput: {stdout}"))?;
+        Ok(tracks)
+    }
+
+    pub async fn get_track_radio(&self, track_id: u64) -> Result<Vec<Track>> {
+        let stdout = self.run(&["radio", &track_id.to_string()])?;
         let tracks: Vec<Track> = serde_json::from_str(&stdout)
             .map_err(|e| anyhow!("JSON error: {e}\noutput: {stdout}"))?;
         Ok(tracks)

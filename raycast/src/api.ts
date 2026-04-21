@@ -43,6 +43,8 @@ export const api = {
 
   // Play
   playTrack: (track: PlayTrackRequest) => post("/play-track", track),
+  startRadio: (trackId?: number) =>
+    post(`/radio${trackId ? `?track_id=${trackId}` : ""}`),
   justPlay: (q: string) => post(`/just-play?q=${encodeURIComponent(q)}`),
 
   // Queue & search
@@ -82,9 +84,11 @@ export function qualityIcon(quality?: string): string {
   }
 }
 
-export function progressBar(progress: number, width = 24): string {
-  const filled = Math.round(progress * width);
-  return "▓".repeat(filled) + "░".repeat(width - filled);
+export function progressBar(progress: number, width = 32): string {
+  const position = Math.round(progress * width);
+  const filled = "━".repeat(position);
+  const empty = "─".repeat(width - position);
+  return `${filled}●${empty}`;
 }
 
 export async function playTrack(track: Track): Promise<void> {

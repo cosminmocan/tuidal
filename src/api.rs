@@ -64,6 +64,7 @@ pub async fn start_server(
         .route("/shuffle",       post(handle_shuffle))
         .route("/repeat",        post(handle_repeat))
         .route("/play-track",    post(handle_play_track))
+        .route("/radio",         post(handle_radio))
         .route("/just-play",     post(handle_just_play))
         .route("/queue",         get(handle_queue))
         .route("/search",        get(handle_search));
@@ -154,6 +155,13 @@ async fn handle_play_track(
     Json(track): Json<ApiTrack>,
 ) -> StatusCode {
     send_cmd(&s, ApiCommand::PlayTrack(track))
+}
+
+#[derive(Deserialize)]
+struct RadioQuery { track_id: Option<u64> }
+
+async fn handle_radio(State(s): State<ApiState>, Query(q): Query<RadioQuery>) -> StatusCode {
+    send_cmd(&s, ApiCommand::StartRadio(q.track_id))
 }
 
 #[derive(Deserialize)]

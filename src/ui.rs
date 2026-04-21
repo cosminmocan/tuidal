@@ -444,6 +444,7 @@ fn draw_player(f: &mut Frame, app: &App, area: Rect) {
             hint_key("Enter", s.hint_play),
             hint_key("Space", s.hint_pause),
             hint_key("n/p",   s.hint_next_prev),
+            hint_key("r",     s.hint_radio),
             hint_key("←/→",   s.hint_seek),
             hint_key("+/-",   s.hint_volume),
             hint_key("Tab",   s.hint_view),
