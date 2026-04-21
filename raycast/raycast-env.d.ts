@@ -35,6 +35,8 @@ declare namespace Preferences {
   export type Shuffle = ExtensionPreferences & {}
   /** Preferences accessible in the `repeat` command */
   export type Repeat = ExtensionPreferences & {}
+  /** Preferences accessible in the `radio` command */
+  export type Radio = ExtensionPreferences & {}
 }
 
 declare namespace Arguments {
@@ -60,5 +62,7 @@ declare namespace Arguments {
   export type Shuffle = {}
   /** Arguments passed to the `repeat` command */
   export type Repeat = {}
+  /** Arguments passed to the `radio` command */
+  export type Radio = {}
 }
 

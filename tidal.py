@@ -170,7 +170,7 @@ def cmd_cover(track_id: int):
         return
     try:
         track = session.track(track_id)
-        url   = track.album.image(320)
+        url   = track.album.image(640)
         out({"url": url, "title": track.name, "artist": track.artist.name, "album": track.album.name})
     except Exception as e:
         err(str(e))
@@ -301,13 +301,25 @@ def cmd_album_tracks(album_id: int):
     except Exception as e:
         err(str(e))
 
+def cmd_track_radio(track_id: int):
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        track = session.track(track_id)
+        tracks = track.get_track_radio()
+        out([_track_dict(t) for t in tracks])
+    except Exception as e:
+        err(str(e))
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     args = sys.argv[1:]
 
     if not args:
-        err("Uso: tidal.py <auth start|auth poll|search <query>|stream <id> [quality]>")
+        err("Uso: tidal.py <auth start|auth poll|search <query>|stream <id> [quality]|radio <id>>")
         sys.exit(1)
 
     match args:
@@ -323,6 +335,8 @@ if __name__ == "__main__":
             cmd_stream(int(track_id))
         case ["stream", track_id, quality]:
             cmd_stream(int(track_id), quality)
+        case ["radio", track_id]:
+            cmd_track_radio(int(track_id))
         case ["cover", track_id]:
             cmd_cover(int(track_id))
         case ["playlists"]:

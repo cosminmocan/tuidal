@@ -77,6 +77,25 @@ export default function Search() {
                 icon={Icon.Play}
                 onAction={() => play(track)}
               />
+              <Action
+                title="Start Radio"
+                icon={Icon.Speaker}
+                onAction={async () => {
+                  try {
+                    await api.startRadio(track.id);
+                    await showToast({
+                      style: Toast.Style.Success,
+                      title: `📻 Radio: ${track.title}`,
+                    });
+                  } catch {
+                    await showToast({
+                      style: Toast.Style.Failure,
+                      title: "Tuidal not running",
+                    });
+                  }
+                }}
+                shortcut={{ modifiers: ["cmd"], key: "r" }}
+              />
             </ActionPanel>
           }
         />

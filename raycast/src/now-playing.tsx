@@ -68,6 +68,10 @@ export default function NowPlaying() {
             <Detail.Metadata.Separator />
             <Detail.Metadata.Label title="Volume" text={`${status.volume}%`} />
             <Detail.Metadata.Label
+              title="Time"
+              text={`${formatDuration(status.elapsed)} / ${status.duration ? formatDuration(status.duration) : "?:??"}`}
+            />
+            <Detail.Metadata.Label
               title="Shuffle"
               text={status.shuffle ? "On" : "Off"}
               icon={status.shuffle ? Icon.Shuffle : undefined}
@@ -111,6 +115,12 @@ export default function NowPlaying() {
               onAction={() => cmd(api.previous)}
               shortcut={{ modifiers: [], key: "arrowLeft" }}
             />
+            <Action
+              title="Start Radio"
+              icon={Icon.Speaker}
+              onAction={() => cmd(() => api.startRadio())}
+              shortcut={{ modifiers: ["cmd"], key: "r" }}
+            />
           </ActionPanel.Section>
           <ActionPanel.Section title="Modes">
             <Action
@@ -143,15 +153,17 @@ function buildMarkdown(status: Status | null, error: boolean): string {
   if (!status || status.state === "stopped" || !status.title)
     return "## Nothing playing\n\nOpen Tuidal and start a track.";
 
-  const elapsed = formatDuration(status.elapsed);
-  const duration = status.duration ? formatDuration(status.duration) : "?:??";
-  const bar = progressBar(status.progress);
+  const parts = [];
 
-  return [
-    `## ${status.title}`,
-    `**${status.artist}**  ·  ${status.album}`,
-    "",
-    `\`${bar}\``,
-    `${elapsed} / ${duration}`,
-  ].join("\n");
+  if (status.cover_url) {
+    // Large centered image using Markdown
+    parts.push(`<img src="${status.cover_url}" alt="${status.album}" width="400" />`);
+    parts.push("");
+  }
+
+  parts.push(`# ${status.title}`);
+  parts.push(`### ${status.artist}`);
+  parts.push(`*${status.album}*`);
+
+  return parts.join("\n");
 }

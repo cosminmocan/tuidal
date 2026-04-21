@@ -10,6 +10,7 @@ export interface Status {
   bit_depth?: number;
   sample_rate?: number;
   codec?: string;
+  cover_url?: string;
   shuffle: boolean;
   repeat: "off" | "one" | "all";
   authenticated: boolean;

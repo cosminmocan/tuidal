@@ -84,6 +84,13 @@
       "subtitle": "Tuidal",
       "description": "Cycle repeat mode: all → one → off",
       "mode": "no-view"
+    },
+    {
+      "name": "radio",
+      "title": "Start Radio",
+      "subtitle": "Tuidal",
+      "description": "Start a radio station from the current track",
+      "mode": "no-view"
     }
   ],
   "dependencies": {

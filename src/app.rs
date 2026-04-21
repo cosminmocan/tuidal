@@ -82,6 +82,7 @@ pub enum AppEvent {
     CoverError,
     LibraryLoaded { playlists: Vec<Playlist>, mixes: Vec<Mix> },
     PlaylistTracksLoaded(Vec<Track>),
+    RadioTracksLoaded(Vec<Track>),
     FavTracksLoaded(Vec<Track>),
     FavAlbumsLoaded(Vec<FavAlbum>),
     ApiCmd(ApiCommand),
@@ -98,6 +99,7 @@ pub enum ApiCommand {
     SeekBackward,
     SeekTo(u64),
     PlayTrack(ApiTrack),
+    StartRadio(Option<u64>),
     ToggleShuffle,
     CycleRepeat,
 }
@@ -132,6 +134,7 @@ pub struct ApiStatus {
     pub bit_depth:     Option<u32>,
     pub sample_rate:   Option<u32>,
     pub codec:         Option<String>,
+    pub cover_url:     Option<String>,
     pub shuffle:       bool,
     pub repeat:        RepeatMode,
     pub authenticated: bool,
@@ -355,6 +358,18 @@ impl App {
                 self.loading     = false;
                 self.status_msg  = self.lang.tracks_loaded(self.queue.len());
             }
+            AppEvent::RadioTracksLoaded(tracks) => {
+                self.queue       = tracks;
+                self.queue_index = None;
+                self.selected    = 0;
+                self.active_tab  = Tab::Queue;
+                self.loading     = false;
+                self.status_msg  = self.lang.tracks_loaded(self.queue.len());
+                if !self.queue.is_empty() {
+                    let track = self.queue[0].clone();
+                    self.stream_track_bg(track, 0);
+                }
+            }
             AppEvent::FavTracksLoaded(tracks) => {
                 self.queue       = tracks;
                 self.queue_index = None;
@@ -413,6 +428,24 @@ impl App {
                     }
                     let qi = self.queue.iter().position(|t| t.id == track.id).unwrap_or(0);
                     self.stream_track_bg(track, qi);
+                }
+                ApiCommand::StartRadio(track_id) => {
+                    let id = track_id.or(self.current_track_id);
+                    if let Some(tid) = id {
+                        self.loading = true;
+                        self.status_msg = self.lang.strings().status_loading_radio.to_string();
+                        let tx = self.tx();
+                        let script = self.tidal.script_path.clone();
+                        let quality = self.tidal.quality;
+                        let python_path = self.tidal.python_path.clone();
+                        tokio::spawn(async move {
+                            let client = TidalClient::with_path_and_quality(script, quality, python_path.clone());
+                            match client.get_track_radio(tid).await {
+                                Ok(tracks) => { let _ = tx.send(AppEvent::RadioTracksLoaded(tracks)); }
+                                Err(e)     => { let _ = tx.send(AppEvent::StreamError(e.to_string())); }
+                            }
+                        });
+                    }
                 }
             },
         }
@@ -763,6 +796,7 @@ tokio::spawn(async move {
             bit_depth,
             sample_rate,
             codec,
+            cover_url:     self.cover_info.as_ref().map(|c| c.url.clone()),
             shuffle:       self.shuffle,
             repeat:        self.repeat.clone(),
             authenticated: self.authenticated,
@@ -782,6 +816,37 @@ tokio::spawn(async move {
             let client = TidalClient::with_path_and_quality(script, quality, python_path.clone());
             match client.get_album_tracks(album_id).await {
                 Ok(tracks) => { let _ = tx.send(AppEvent::PlaylistTracksLoaded(tracks)); }
+                Err(e)     => { let _ = tx.send(AppEvent::StreamError(e.to_string())); }
+            }
+        });
+    }
+
+    pub fn start_radio_bg(&mut self) {
+        if !self.authenticated {
+            self.status_msg = self.lang.strings().status_login_required_short.to_string();
+            return;
+        }
+        // Get track ID from selection or current playing
+        let track_id = match self.active_tab {
+            Tab::Search => self.search_results.get(self.selected).map(|t| t.id),
+            Tab::Queue  => self.queue.get(self.selected).map(|t| t.id),
+            Tab::Now    => self.current_track_id,
+            Tab::Library => None,
+        };
+
+        let Some(tid) = track_id else { return };
+        
+        self.loading = true;
+        self.status_msg = self.lang.strings().status_loading_radio.to_string();
+        let tx = self.tx();
+        let script = self.tidal.script_path.clone();
+        let quality = self.tidal.quality;
+        let python_path = self.tidal.python_path.clone();
+        
+        tokio::spawn(async move {
+            let client = TidalClient::with_path_and_quality(script, quality, python_path.clone());
+            match client.get_track_radio(tid).await {
+                Ok(tracks) => { let _ = tx.send(AppEvent::RadioTracksLoaded(tracks)); }
                 Err(e)     => { let _ = tx.send(AppEvent::StreamError(e.to_string())); }
             }
         });

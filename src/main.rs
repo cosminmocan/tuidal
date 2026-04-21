@@ -208,6 +208,7 @@ fn handle_normal(key: KeyCode, app: &mut App) {
         KeyCode::Char(' ') => app.player.toggle_pause(),
         KeyCode::Char('n') => app.play_next_bg(),
         KeyCode::Char('p') => app.play_prev_bg(),
+        KeyCode::Char('r') => app.start_radio_bg(),
         KeyCode::Right => app.player.seek_forward(),
         KeyCode::Left  => app.player.seek_backward(),
         KeyCode::Char('+') | KeyCode::Char('=') => app.player.volume_up(),
