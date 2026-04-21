@@ -210,21 +210,19 @@ Rust TUI  ──subprocess──►  tidal.py  ──►  Tidal API
 
 ---
 
-## Cargo.toml dependencies
+## Local HTTP API
 
-```toml
-[dependencies]
-ratatui       = "0.29"
-crossterm     = { version = "0.28", features = ["event-stream"] }
-tokio         = { version = "1", features = ["full"] }
-reqwest       = { version = "0.12", features = ["json", "blocking"] }
-serde         = { version = "1", features = ["derive"] }
-serde_json    = "1"
-anyhow        = "1"
-libc          = "0.2"
-ratatui-image = "6"
-image         = "0.25"
-```
+Tuidal automatically hosts a local REST API on port `7837` that allows you to interface with the player programmatically without interacting with the terminal UI. You can use this for scripting (like `curl`) or writing widgets for your status bar:
+
+- `GET http://localhost:7837/status` - Returns a JSON object with the current player status, including track name, playtime, and queue.
+- `POST http://localhost:7837/play-pause` - Toggles playback.
+- `POST http://localhost:7837/next` - Skips to the next track.
+- `POST http://localhost:7837/previous` - Goes to the previous track.
+- `POST http://localhost:7837/volume?level=80` - Sets the volume to 80.
+- `POST http://localhost:7837/volume-up` / `volume-down` - Adjusts the volume incrementally.
+- `POST http://localhost:7837/seek-forward` / `seek-backward` - Seeks through the current track.
+
+*(Check out `src/api.rs` for all the available routes, including search, queue management, and library access).*
 
 ---
 

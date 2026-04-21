@@ -57,6 +57,7 @@ impl Player {
         let mut mpv_args = vec![
             "--no-video".to_string(),
             "--really-quiet".to_string(),
+            "--input-media-keys=no".to_string(),
             format!("--input-ipc-server={SOCKET_PATH}"),
             format!("--volume={}", self.volume),
         ];
@@ -159,6 +160,14 @@ impl Player {
     pub fn seek_backward(&mut self) {
         self.ipc_cmd(r#"{"command":["seek",-10,"relative"]}"#);
         self.elapsed = self.elapsed.saturating_sub(Duration::from_secs(10));
+    }
+
+    pub fn seek_to(&mut self, secs: u64) {
+        self.ipc_cmd(&format!(
+            r#"{{"command":["seek",{},"absolute"]}}"#,
+            secs
+        ));
+        self.elapsed = Duration::from_secs(secs);
     }
 
     /// Envía un comando JSON al socket IPC de mpv (fire-and-forget)
