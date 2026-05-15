@@ -670,6 +670,22 @@ tokio::spawn(async move {
         });
     }
 
+    pub fn load_new_releases_bg(&mut self) {
+        self.loading    = true;
+        self.status_msg = self.lang.strings().status_loading_new_releases.to_string();
+        let tx      = self.tx();
+        let script  = self.tidal.script_path.clone();
+        let quality = self.tidal.quality;
+        let python_path = self.tidal.python_path.clone();
+tokio::spawn(async move {
+            let client = TidalClient::with_path_and_quality(script, quality, python_path.clone());
+            match client.get_new_releases().await {
+                Ok(tracks) => { let _ = tx.send(AppEvent::RadioTracksLoaded(tracks)); }
+                Err(e)     => { let _ = tx.send(AppEvent::StreamError(e.to_string())); }
+            }
+        });
+    }
+
     pub fn library_select_enter(&mut self) {
         // Si esta   en vista de álbumes favoritos
         if self.collection_view == CollectionView::Albums {

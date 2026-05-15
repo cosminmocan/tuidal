@@ -73,7 +73,8 @@ pub async fn start_server(
     let router = router
         .route("/library",                 get(handle_library))
         .route("/library/favorites",       get(handle_library_favorites))
-        .route("/library/favorite-albums", get(handle_library_fav_albums));
+        .route("/library/favorite-albums", get(handle_library_fav_albums))
+        .route("/library/new-releases",    get(handle_library_new_releases));
     log("start_server: library static routes registered");
 
     let router = router
@@ -268,6 +269,14 @@ async fn handle_library_album(
     Path(id): Path<u64>,
 ) -> Result<Json<Vec<Track>>, StatusCode> {
     s.tidal().get_album_tracks(id).await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn handle_library_new_releases(
+    State(s): State<ApiState>,
+) -> Result<Json<Vec<Track>>, StatusCode> {
+    s.tidal().get_new_releases().await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }

@@ -8,99 +8,89 @@ Uso:
   python3 tidal.py search "Daft Punk"
   python3 tidal.py stream 12345
   python3 tidal.py stream 12345 HI_RES_LOSSLESS
-
-Siempre imprime JSON en stdout. Errores van a stderr.
-Instalar: pip install tidalapi --break-system-packages
 """
 
 import json
 import sys
 import threading
 from pathlib import Path
-
+from tidalapi.user import ItemOrder, AlbumOrder, OrderDirection
 import tidalapi
 
-SESSION_FILE = str(Path.home() / ".config" / "tidal-tui" / "tidalapi_session.json")
-POLL_FILE    = str(Path.home() / ".config" / "tidal-tui" / "oauth_pending.json")
+SESSION_FILE = Path.home() / ".config" / "tidal-tui" / "tidalapi_session.json"
+POLL_FILE    = Path.home() / ".config" / "tidal-tui" / "oauth_pending.json"
 
-def out(data: dict):
-    print(json.dumps(data, ensure_ascii=False))
+def out(data):
+    # Use ensure_ascii=True (default) so that non-ASCII characters are escaped as \uXXXX.
+    # This is much safer for IPC as it avoids encoding mismatches.
+    print(json.dumps(data))
     sys.stdout.flush()
 
 def err(msg: str):
     print(msg, file=sys.stderr)
     out({"error": msg})
 
-def make_session() -> tidalapi.Session:
-    return tidalapi.Session()
+def make_session(quality=None) -> tidalapi.Session:
+    config = tidalapi.Config(quality=quality) if quality else tidalapi.Config()
+    return tidalapi.Session(config)
 
 def load_session(session: tidalapi.Session) -> bool:
     try:
-        session.load_oauth_session(SESSION_FILE)
+        session.load_session_from_file(SESSION_FILE)
         return session.check_login()
     except Exception:
         return False
 
 def save_session(session: tidalapi.Session):
-    Path(SESSION_FILE).parent.mkdir(parents=True, exist_ok=True)
-    session.save_oauth_session(SESSION_FILE)
+    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
+    session.save_session_to_file(SESSION_FILE)
 
 # ─── Comandos ─────────────────────────────────────────────────────────────────
 
 def cmd_auth_start():
-    """Inicia OAuth Device Flow. Guarda estado en POLL_FILE para que poll lo use."""
     session = make_session()
+    POLL_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    # login_oauth() devuelve (future, url_obj)
-    # Necesitamos guardar el future en un hilo y el url para mostrarlo al usuario
-    result = {}
-    event  = threading.Event()
+    # login_oauth() → (LinkLogin, Future)
+    link_login, future = session.login_oauth()
 
-    def do_login():
+    url  = str(link_login.verification_uri_complete)
+    code = str(link_login.user_code)
+
+    # Marcar como pendiente
+    POLL_FILE.write_text(json.dumps({"done": False}))
+
+    # Imprimir URL para que Rust la muestre
+    out({"url": url, "code": code})
+
+    # Esperar en hilo a que el usuario autorice
+    def wait_auth():
         try:
-            future, url = session.login_oauth()
-            result["url"]  = str(url)
-            result["code"] = getattr(url, "user_code", "")
-            event.set()
-            future.result()  # bloquea hasta que el usuario autorice
+            future.result()  # bloquea hasta autorización
             save_session(session)
-            Path(POLL_FILE).write_text(json.dumps({"done": True}))
+            POLL_FILE.write_text(json.dumps({"done": True}))
         except Exception as e:
-            Path(POLL_FILE).write_text(json.dumps({"done": False, "error": str(e)}))
+            POLL_FILE.write_text(json.dumps({"done": False, "error": str(e)}))
 
-    t = threading.Thread(target=do_login, daemon=True)
+    t = threading.Thread(target=wait_auth, daemon=False)
     t.start()
-    event.wait(timeout=10)
-
-    if "url" not in result:
-        err("Timeout esperando URL de auth")
-        return
-
-    # Guardar el hilo en POLL_FILE como "pendiente"
-    Path(POLL_FILE).write_text(json.dumps({"done": False}))
-
-    out({"url": result["url"], "code": result["code"]})
-
-    # Esperar en background a que el usuario autorice
-    t.join()
+    t.join()  # el proceso espera hasta que el usuario autorice
 
 def cmd_auth_poll():
-    """Verifica si el OAuth ya completó (lee POLL_FILE)."""
-    poll_path = Path(POLL_FILE)
-    session   = make_session()
+    session = make_session()
 
     if load_session(session):
         out({"authenticated": True})
         return
 
-    if not poll_path.exists():
+    if not POLL_FILE.exists():
         out({"authenticated": False, "pending": False})
         return
 
     try:
-        state = json.loads(poll_path.read_text())
+        state = json.loads(POLL_FILE.read_text())
         if state.get("done"):
-            poll_path.unlink(missing_ok=True)
+            POLL_FILE.unlink(missing_ok=True)
             out({"authenticated": True})
         else:
             out({"authenticated": False, "pending": True, "error": state.get("error", "")})
@@ -121,54 +111,42 @@ def cmd_search(query: str, limit: int = 20):
         err(str(e))
 
 def cmd_stream(track_id: int, quality_str: str = "LOSSLESS"):
-    session = make_session()
-    if not load_session(session):
-        err("No autenticado")
-        return
-
     quality_map = {
         "HI_RES_LOSSLESS": tidalapi.Quality.hi_res_lossless,
-        "LOSSLESS":        tidalapi.Quality.lossless,
-        "HIGH":            tidalapi.Quality.high,
+        "LOSSLESS":        tidalapi.Quality.high_lossless,
+        "HIGH":            tidalapi.Quality.low_320k,
     }
-    session.config.quality = quality_map.get(quality_str, tidalapi.Quality.lossless)
 
-    try:
-        track = session.track(track_id)
-        url   = track.get_url()
-        out({
-            "url":         url,
-            "codec":       "flac",
-            "bit_depth":   24 if quality_str == "HI_RES_LOSSLESS" else 16,
-            "sample_rate": 96000 if quality_str == "HI_RES_LOSSLESS" else 44100,
-            "mime_type":   "audio/flac",
-        })
-    except Exception as e:
-        err(str(e))
+    fallback_chain = {
+        "HI_RES_LOSSLESS": ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH"],
+        "LOSSLESS":        ["LOSSLESS", "HIGH"],
+        "HIGH":            ["HIGH"],
+    }
 
-def cmd_cover(track_id: int):
-    session = make_session()
-    if not load_session(session):
-        err("No autenticado")
-        return
-    try:
-        track = session.track(track_id)
-        url   = track.album.image(640)
-        out({"url": url, "title": track.name, "artist": track.artists[0].name, "album": track.album.name})
-    except Exception as e:
-        err(str(e))
+    last_error = ""
+    for q_str in fallback_chain.get(quality_str, ["LOSSLESS", "HIGH"]):
+        # Crear sesión nueva con la calidad correcta en cada intento
+        session = make_session(quality=quality_map[q_str])
+        if not load_session(session):
+            err("No autenticado")
+            return
+        try:
+            track = session.track(track_id)
+            url   = track.get_url()
+            out({
+                "url":         url,
+                "codec":       "flac" if q_str in ("HI_RES_LOSSLESS", "LOSSLESS") else "aac",
+                "bit_depth":   24 if q_str == "HI_RES_LOSSLESS" else 16,
+                "sample_rate": 96000 if q_str == "HI_RES_LOSSLESS" else 44100,
+                "mime_type":   "audio/flac" if q_str in ("HI_RES_LOSSLESS", "LOSSLESS") else "audio/aac",
+                "quality":     q_str,
+            })
+            return
+        except Exception as e:
+            last_error = str(e)
+            continue
 
-def cmd_track_radio(track_id: int):
-    session = make_session()
-    if not load_session(session):
-        err("No autenticado")
-        return
-    try:
-        track = session.track(track_id)
-        tracks = track.get_track_radio()
-        out([_track_dict(t) for t in tracks])
-    except Exception as e:
-        err(str(e))
+    err(f"No se pudo obtener stream en ninguna calidad: {last_error}")
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,6 +161,182 @@ def _track_dict(t: tidalapi.Track) -> dict:
         "audio_quality": str(getattr(t, "audio_quality", "") or ""),
         "explicit":      getattr(t, "explicit", False),
     }
+
+# ─── Charge album cover ───────────────────────────────────────────────────────
+def cmd_cover(track_id: int):
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        track = session.track(track_id)
+        url   = track.album.image(640)
+        out({"url": url, "title": track.name, "artist": track.artist.name, "album": track.album.name})
+    except Exception as e:
+        err(str(e))
+        
+def cmd_playlists():
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        playlists = session.user.playlists()
+        result = []
+        for p in playlists:
+            result.append({
+                "uuid":             str(p.id),
+                "title":            p.name,
+                "numberOfTracks":   p.num_tracks,
+                "duration":         p.duration or 0,
+                "type":             str(getattr(p, 'type', 'USER')),
+                "publicPlaylist":   getattr(p, 'public', False),
+            })
+        out(result)
+    except Exception as e:
+        err(str(e))
+
+def cmd_playlist_tracks(uuid: str):
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        playlist = session.playlist(uuid)
+        tracks   = playlist.tracks()
+        out([_track_dict(t) for t in tracks])
+    except Exception as e:
+        err(str(e))
+
+def cmd_mixes():
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        mixes  = session.mixes()
+        result = []
+        for m in mixes:
+            result.append({
+                "id":       str(m.id),
+                "title":    m.title,
+                "subTitle": getattr(m, 'sub_title', None),
+            })
+        out(result)
+    except Exception as e:
+        err(str(e))
+
+def cmd_mix_tracks(mix_id: str):
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        mix    = session.mix(mix_id)
+        items  = mix.items()
+        # mix.items() devuelve objetos Track directamente
+        tracks = [t for t in items if isinstance(t, tidalapi.Track)]
+        out([_track_dict(t) for t in tracks])
+    except Exception as e:
+        err(str(e))
+
+def cmd_new_releases():
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        mixes = session.mixes()
+        target_mix = None
+        for m in mixes:
+            if "new" in m.title.lower() and "release" in m.title.lower():
+                target_mix = m
+                break
+        if not target_mix and mixes:
+            target_mix = next(iter(mixes), None)
+            
+        if not target_mix:
+            out([])
+            return
+            
+        items = target_mix.items()
+        tracks = [t for t in items if isinstance(t, tidalapi.Track)]
+        out([_track_dict(t) for t in tracks])
+    except Exception as e:
+        err(str(e))
+
+# ─── modelos álbum para colección ──────────────────────────────────
+
+def _album_dict(a) -> dict:
+    artists = []
+    if hasattr(a, 'artists') and a.artists:
+        artists = [{"id": art.id, "name": art.name} for art in a.artists]
+    elif hasattr(a, 'artist') and a.artist:
+        artists = [{"id": a.artist.id, "name": a.artist.name}]
+    return {
+        "id":             a.id,
+        "title":          a.name,
+        "numberOfTracks": getattr(a, 'num_tracks', 0) or 0,
+        "duration":       getattr(a, 'duration', 0) or 0,
+        "artists":        artists,
+        "coverUrl":       a.image(320) if hasattr(a, 'image') else None,
+    }
+
+def cmd_favorite_tracks():
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        favorites = tidalapi.Favorites(session, session.user.id)
+        tracks    = favorites.tracks(
+            limit=500,
+            order=ItemOrder.Date,
+            order_direction=OrderDirection.Descending,
+        )
+        out([_track_dict(t) for t in tracks])
+    except Exception as e:
+        err(str(e))
+
+def cmd_favorite_albums():
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        favorites = tidalapi.Favorites(session, session.user.id)
+        albums    = favorites.albums(
+            limit=400,
+            order=AlbumOrder.DateAdded,
+            order_direction=OrderDirection.Descending,
+        )
+        out([_album_dict(a) for a in albums])
+    except Exception as e:
+        err(str(e))
+
+def cmd_album_tracks(album_id: int):
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        album  = session.album(album_id)
+        tracks = album.tracks()
+        out([_track_dict(t) for t in tracks])
+    except Exception as e:
+        err(str(e))
+
+def cmd_track_radio(track_id: int):
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        track = session.track(track_id)
+        tracks = track.get_track_radio()
+        out([_track_dict(t) for t in tracks])
+    except Exception as e:
+        err(str(e))
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
@@ -210,6 +364,22 @@ if __name__ == "__main__":
             cmd_track_radio(int(track_id))
         case ["cover", track_id]:
             cmd_cover(int(track_id))
+        case ["playlists"]:
+            cmd_playlists()
+        case ["playlist_tracks", uuid]:
+            cmd_playlist_tracks(uuid)
+        case ["mixes"]:
+            cmd_mixes()
+        case ["mix_tracks", mix_id]:
+            cmd_mix_tracks(mix_id)
+        case ["new_releases"]:
+            cmd_new_releases()
+        case ["fav_tracks"]:
+            cmd_favorite_tracks()
+        case ["fav_albums"]:
+            cmd_favorite_albums()
+        case ["album_tracks", album_id]:
+            cmd_album_tracks(int(album_id))
         case _:
             err(f"Comando desconocido: {args}")
             sys.exit(1)
