@@ -206,7 +206,13 @@ fn handle_normal(key: KeyCode, app: &mut App) {
             }
         }
         KeyCode::Char(' ') => app.player.toggle_pause(),
-        KeyCode::Char('n') => app.play_next_bg(),
+        KeyCode::Char('n') => {
+            if app.active_tab == Tab::Library {
+                if app.authenticated { app.load_new_releases_bg(); }
+            } else {
+                app.play_next_bg();
+            }
+        },
         KeyCode::Char('p') => app.play_prev_bg(),
         KeyCode::Char('r') => app.start_radio_bg(),
         KeyCode::Right => app.player.seek_forward(),

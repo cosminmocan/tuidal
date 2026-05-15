@@ -439,22 +439,31 @@ fn draw_player(f: &mut Frame, app: &App, area: Rect) {
     );
 
     let s = app.lang.strings();
+    let mut hints = vec![
+        hint_key("Enter", s.hint_play),
+        hint_key("Space", s.hint_pause),
+    ];
+    if app.active_tab == Tab::Library {
+        hints.push(hint_key("n", s.hint_new_releases));
+        hints.push(hint_key("p", s.hint_next_prev));
+    } else {
+        hints.push(hint_key("n/p", s.hint_next_prev));
+    }
+    hints.extend(vec![
+        hint_key("r",     s.hint_radio),
+        hint_key("←/→",   s.hint_seek),
+        hint_key("+/-",   s.hint_volume),
+        hint_key("Tab",   s.hint_view),
+        hint_key("1/2/3", s.hint_quality),
+        hint_key("q",     s.hint_quit),
+        hint_key("i",     s.hint_library),
+        hint_key("F",     s.hint_fav_tracks),
+        hint_key("A",     s.hint_fav_albums),
+        hint_key("`",     s.hint_lang),
+    ]);
+
     f.render_widget(
-        Paragraph::new(Line::from(vec![
-            hint_key("Enter", s.hint_play),
-            hint_key("Space", s.hint_pause),
-            hint_key("n/p",   s.hint_next_prev),
-            hint_key("r",     s.hint_radio),
-            hint_key("←/→",   s.hint_seek),
-            hint_key("+/-",   s.hint_volume),
-            hint_key("Tab",   s.hint_view),
-            hint_key("1/2/3", s.hint_quality),
-            hint_key("q",     s.hint_quit),
-            hint_key("i",     s.hint_library),
-            hint_key("F",     s.hint_fav_tracks),
-            hint_key("A",     s.hint_fav_albums),
-            hint_key("`",     s.hint_lang),
-        ])),
+        Paragraph::new(Line::from(hints)),
         inner[2],
     );
 }

@@ -355,4 +355,11 @@ impl TidalClient {
             .map_err(|e| anyhow!("JSON error: {e}\noutput: {stdout}"))?;
         Ok(tracks)
     }
+
+    pub async fn get_new_releases(&self) -> Result<Vec<Track>> {
+        let stdout = self.run(&["new_releases"])?;
+        let tracks: Vec<Track> = serde_json::from_str(&stdout)
+            .map_err(|e| anyhow!("JSON error: {e}\noutput: {stdout}"))?;
+        Ok(tracks)
+    }
 }

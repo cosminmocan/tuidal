@@ -240,6 +240,31 @@ def cmd_mix_tracks(mix_id: str):
     except Exception as e:
         err(str(e))
 
+def cmd_new_releases():
+    session = make_session()
+    if not load_session(session):
+        err("No autenticado")
+        return
+    try:
+        mixes = session.mixes()
+        target_mix = None
+        for m in mixes:
+            if "new" in m.title.lower() and "release" in m.title.lower():
+                target_mix = m
+                break
+        if not target_mix and mixes:
+            target_mix = next(iter(mixes), None)
+            
+        if not target_mix:
+            out([])
+            return
+            
+        items = target_mix.items()
+        tracks = [t for t in items if isinstance(t, tidalapi.Track)]
+        out([_track_dict(t) for t in tracks])
+    except Exception as e:
+        err(str(e))
+
 # ─── modelos álbum para colección ──────────────────────────────────
 
 def _album_dict(a) -> dict:
@@ -347,6 +372,8 @@ if __name__ == "__main__":
             cmd_mixes()
         case ["mix_tracks", mix_id]:
             cmd_mix_tracks(mix_id)
+        case ["new_releases"]:
+            cmd_new_releases()
         case ["fav_tracks"]:
             cmd_favorite_tracks()
         case ["fav_albums"]:
